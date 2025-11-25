@@ -1,0 +1,113 @@
+# Проверка админа (для IEX важно запускать CMD сразу от админа)
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "ЗАПУСТИТЕ КОМАНДНУЮ СТРОКУ ОТ ИМЕНИ АДМИНИСТРАТОРА!" -ForegroundColor Red
+    Write-Host "Run CMD as Administrator!" -ForegroundColor Red
+    Pause
+    exit
+}
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Clear-Host
+
+Write-Host @"
+$$$$$$$\  $$     $$
+$$  __$$\  $$   $$
+$$ |  $$ |  $$ $$
+$$$$$$$\ |   $$$
+$$  __$$\    $$
+$$ |  $$ |   $$
+$$$$$$$  |   $$
+\_______/    \__|
+
+$$   $$          $$$$$$$\                            $$\ $$$$$$$$\           $$\ $$\ $$\                  $$\   $$\
+$$   $$          $$  __$$\                           $$ |\____$$  |          $$ |$$ |\__|                 $$ |  $$ |
+\$$\ $$  $$\   $$\ $$ |  $$ | $$$$$$\   $$$$$$\   $$$$$$$ |    $$ |  $$$$$$\  $$ |$$ |$$\ $$$$$$$\  $$$$$$\ \$$\ $$  |
+ \$$$$  / \$$\ $$  |$$ |  $$ |$$  __$$\  \____$$\ $$  __$$ |    $$ | $$  __$$\ $$ |$$ |$$ |$$  _____|$$  __$$\ \$$$$  /
+ $$  $$<   \$$$$  / $$ |  $$ |$$$$$$$$ | $$$$$$$ |$$ /  $$ |    $$ | $$ /  $$ |$$ |$$ |$$ |$$ /      $$ /  $$ | $$  $$<
+$$  /\$$\  $$  $$<  $$ |  $$ |$$   ____|$$  __$$ |$$ |  $$ |    $$ | $$ |  $$ |$$ |$$ |$$ |$$ |      $$ |  $$ |$$  /\$$\
+$$ /  $$ |$$  /\$$\ $$$$$$$  |\$$$$$$$\ \$$$$$$$ |\$$$$$$$ |    $$ | \$$$$$$  |$$ |$$ |$$ |\$$$$$$$\ \$$$$$$  |$$ /  $$ |
+\__|  \__|\__/  \__|\_______/  \_______| \_______| \_______|    \__|  \______/ \__|\__|\__| \_______| \______/ \__|  \__|
+"@ -ForegroundColor Cyan
+
+Add-Type -AssemblyName System.Windows.Forms
+
+# --- ВЫБОР ФАЙЛОВ ---
+$dllDialog = New-Object System.Windows.Forms.OpenFileDialog
+$dllDialog.Title = "Select nvm_jni.dll"
+$dllDialog.Filter = "DLL files (*.dll)|nvm_jni.dll|All files (*.*)|*.*"
+$dllDialog.FileName = "nvm_jni.dll"
+# Пытаемся открыть текущую папку, если скрипт запущен из файла, иначе рабочий стол
+if ($PSScriptRoot) { $dllDialog.InitialDirectory = $PSScriptRoot } else { $dllDialog.InitialDirectory = [Environment]::GetFolderPath("Desktop") }
+
+if ($dllDialog.ShowDialog() -ne "OK") { exit 1 }
+$dllPath = $dllDialog.FileName
+$targetFolder = Split-Path $dllPath -Parent
+
+$sysDialog = New-Object System.Windows.Forms.OpenFileDialog
+$sysDialog.Title = "Select nvm.sys"
+$sysDialog.Filter = "JAR/SYS files (*.sys;*.jar)|nvm.sys;nvm.jar|All files (*.*)|*.*"
+$sysDialog.FileName = "nvm.sys"
+$sysDialog.InitialDirectory = $targetFolder
+
+if ($sysDialog.ShowDialog() -ne "OK") { exit 1 }
+$sysPath = $sysDialog.FileName
+
+if ((Split-Path $dllPath -Parent) -ne (Split-Path $sysPath -Parent)) {
+    Write-Host "ERROR: Files must be in the same folder!" -ForegroundColor Red
+    Pause; exit 1
+}
+
+Set-Location $targetFolder
+
+# --- ПОИСК JAVA ---
+$possibleJava = @(
+    "${env:USERPROFILE}\.cursor\extensions\redhat.java-*\jre\*\bin\java.exe"
+    "${env:USERPROFILE}\.cursor\extensions\vscjava.vscode-java-debug-*\jre\*\bin\java.exe"
+    "C:\Program Files\Java\jdk-*\bin\java.exe"
+    "C:\Program Files\Java\jre-*\bin\java.exe"
+    "C:\Program Files\Eclipse Adoptium\jdk-*\bin\java.exe"
+    "C:\Program Files\JetBrains\IntelliJ IDEA*\jbr\bin\java.exe"
+    "C:\Program Files (x86)\JetBrains\IntelliJ IDEA*\jbr\bin\java.exe"
+    "${env:USERPROFILE}\.jdks\*\bin\java.exe"
+    "${env:PROGRAMFILES}\Amazon Corretto\*\bin\java.exe"
+    "java"
+)
+
+$javaExe = $null
+foreach ($pattern in $possibleJava) {
+    $found = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($found) { $javaExe = $found.FullName; break }
+}
+
+if (-not $javaExe) {
+    Write-Host "Java not found." -ForegroundColor Red
+    Pause; exit 1
+}
+
+# --- ЗАПУСК ---
+try {
+    $process = Start-Process -FilePath $javaExe -ArgumentList "-Djava.library.path=.", "-jar", "`"$sysPath`"" -Wait -NoNewWindow -PassThru
+    $exitCode = $process.ExitCode
+} catch {
+    $exitCode = -1
+}
+
+Clear-Host
+Write-Host "DONE. EXIT CODE: $exitCode" -ForegroundColor Green
+Write-Host "Cleaning traces..." -ForegroundColor Gray
+
+# --- ОЧИСТКА СЛЕДОВ (ИСТОРИЯ + СКРИПТ) ---
+
+# 1. Очистка истории PowerShell (чтобы ссылка IEX пропала из памяти)
+[Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory() 2>$null
+Clear-History 2>$null
+
+# 2. Если скрипт запущен как файл - удаляем его. Если через IEX - просто выходим.
+if ($PSCommandPath) {
+    $scriptPath = $PSCommandPath
+    try {
+        Start-Process cmd.exe -ArgumentList "/c timeout /t 2 /nobreak > NUL & del `"$scriptPath`"" -WindowStyle Hidden
+    } catch {}
+}
+
+exit
