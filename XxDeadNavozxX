@@ -1,4 +1,11 @@
-# Проверка админа (для IEX важно запускать CMD сразу от админа)
+Trap {
+    Write-Host "`n[CRITICAL ERROR]" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
+    Pause
+    exit 1
+}
+
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "ЗАПУСТИТЕ КОМАНДНУЮ СТРОКУ ОТ ИМЕНИ АДМИНИСТРАТОРА!" -ForegroundColor Red
     Write-Host "Run CMD as Administrator!" -ForegroundColor Red
@@ -36,7 +43,6 @@ $dllDialog = New-Object System.Windows.Forms.OpenFileDialog
 $dllDialog.Title = "Select nvm_jni.dll"
 $dllDialog.Filter = "DLL files (*.dll)|nvm_jni.dll|All files (*.*)|*.*"
 $dllDialog.FileName = "nvm_jni.dll"
-# Пытаемся открыть текущую папку, если скрипт запущен из файла, иначе рабочий стол
 if ($PSScriptRoot) { $dllDialog.InitialDirectory = $PSScriptRoot } else { $dllDialog.InitialDirectory = [Environment]::GetFolderPath("Desktop") }
 
 if ($dllDialog.ShowDialog() -ne "OK") { exit 1 }
@@ -102,7 +108,7 @@ Write-Host "Cleaning traces..." -ForegroundColor Gray
 [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory() 2>$null
 Clear-History 2>$null
 
-# 2. Если скрипт запущен как файл - удаляем его. Если через IEX - просто выходим.
+# 2. Самоуничтожение скрипта (если запущен как файл)
 if ($PSCommandPath) {
     $scriptPath = $PSCommandPath
     try {
